@@ -14,7 +14,7 @@ CREATE TABLE Teachers (
     phone varchar(20),
     email varchar(100),
     address varchar(200)
-);
+);	
 
 CREATE TABLE TeacherSubjects (
     teacher_id integer NOT NULL REFERENCES Teachers(teacher_id) ON DELETE CASCADE,
@@ -48,12 +48,14 @@ DECLARE
 BEGIN
     SELECT teacher_id INTO v_teacher_id FROM Teachers WHERE name = NEW.teacher_name;
     IF NOT FOUND THEN
-        INSERT INTO Teachers (name) VALUES (NEW.teacher_name) RETURNING teacher_id INTO v_teacher_id;
+        SELECT COALESCE(MAX(teacher_id), 0) + 1 INTO v_teacher_id FROM Teachers;
+        INSERT INTO Teachers (teacher_id, name) VALUES (v_teacher_id, NEW.teacher_name);
     END IF;
 
     SELECT subject_id INTO v_subject_id FROM Subjects WHERE name = NEW.subject_name;
     IF NOT FOUND THEN
-        INSERT INTO Subjects (name) VALUES (NEW.subject_name) RETURNING subject_id INTO v_subject_id;
+        SELECT COALESCE(MAX(subject_id), 0) + 1 INTO v_subject_id FROM Subjects;
+        INSERT INTO Subjects (subject_id, name) VALUES (v_subject_id, NEW.subject_name);
     END IF;
 
     INSERT INTO TeacherSubjects (teacher_id, subject_id, is_main)
@@ -77,12 +79,14 @@ DECLARE
 BEGIN
     SELECT teacher_id INTO v_new_teacher_id FROM Teachers WHERE name = NEW.teacher_name;
     IF NOT FOUND THEN
-        INSERT INTO Teachers (name) VALUES (NEW.teacher_name) RETURNING teacher_id INTO v_new_teacher_id;
+        SELECT COALESCE(MAX(teacher_id), 0) + 1 INTO v_new_teacher_id FROM Teachers;
+        INSERT INTO Teachers (teacher_id, name) VALUES (v_new_teacher_id, NEW.teacher_name);
     END IF;
 
     SELECT subject_id INTO v_new_subject_id FROM Subjects WHERE name = NEW.subject_name;
     IF NOT FOUND THEN
-        INSERT INTO Subjects (name) VALUES (NEW.subject_name) RETURNING subject_id INTO v_new_subject_id;
+        SELECT COALESCE(MAX(subject_id), 0) + 1 INTO v_new_subject_id FROM Subjects;
+        INSERT INTO Subjects (subject_id, name) VALUES (v_new_subject_id, NEW.subject_name);
     END IF;
 
     UPDATE TeacherSubjects ts
@@ -116,7 +120,6 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_v_ts_delete
 INSTEAD OF DELETE ON v_teacher_subjects
 FOR EACH ROW EXECUTE FUNCTION tf_v_ts_delete();
-
 
 SELECT * FROM v_teacher_subjects ORDER BY teacher_name, subject_name;
 
