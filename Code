@@ -1,0 +1,139 @@
+DROP VIEW IF EXISTS v_teacher_subjects CASCADE;
+DROP TABLE IF EXISTS TeacherSubjects CASCADE;
+DROP TABLE IF EXISTS Teachers CASCADE;
+DROP TABLE IF EXISTS Subjects CASCADE;
+
+CREATE TABLE Subjects (
+    subject_id integer PRIMARY KEY,
+    name varchar(100) NOT NULL
+);
+
+CREATE TABLE Teachers (
+    teacher_id integer PRIMARY KEY,
+    name varchar(100) NOT NULL,
+    phone varchar(20),
+    email varchar(100),
+    address varchar(200)
+);
+
+CREATE TABLE TeacherSubjects (
+    teacher_id integer NOT NULL REFERENCES Teachers(teacher_id) ON DELETE CASCADE,
+    subject_id integer NOT NULL REFERENCES Subjects(subject_id) ON DELETE CASCADE,
+    is_main boolean DEFAULT false,
+    PRIMARY KEY (teacher_id, subject_id)
+);
+
+INSERT INTO Subjects (subject_id, name) VALUES 
+    (1, 'Математика'), (2, 'Физика'), (3, 'Информатика');
+
+INSERT INTO Teachers (teacher_id, name, phone, email, address) VALUES 
+    (1, 'Александра', '+7 866 555-35-35', 'alex@gmail.com', 'ул. Ленина, 1'),
+    (2, 'Иван', '+7 999 111-22-33', 'ivan@gmail.com', 'ул. Мира, 10');
+
+INSERT INTO TeacherSubjects (teacher_id, subject_id, is_main) VALUES
+    (1, 1, true), (1, 2, false), (2, 3, true);
+
+CREATE OR REPLACE VIEW v_teacher_subjects AS
+SELECT 
+    t.name AS teacher_name, s.name AS subject_name, ts.is_main
+FROM TeacherSubjects ts
+JOIN Teachers t ON t.teacher_id = ts.teacher_id
+JOIN Subjects s ON s.subject_id = ts.subject_id;
+
+CREATE OR REPLACE FUNCTION tf_v_ts_insert()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_teacher_id integer;
+    v_subject_id integer;
+BEGIN
+    SELECT teacher_id INTO v_teacher_id FROM Teachers WHERE name = NEW.teacher_name;
+    IF NOT FOUND THEN
+        INSERT INTO Teachers (name) VALUES (NEW.teacher_name) RETURNING teacher_id INTO v_teacher_id;
+    END IF;
+
+    SELECT subject_id INTO v_subject_id FROM Subjects WHERE name = NEW.subject_name;
+    IF NOT FOUND THEN
+        INSERT INTO Subjects (name) VALUES (NEW.subject_name) RETURNING subject_id INTO v_subject_id;
+    END IF;
+
+    INSERT INTO TeacherSubjects (teacher_id, subject_id, is_main)
+    VALUES (v_teacher_id, v_subject_id, COALESCE(NEW.is_main, false))
+    ON CONFLICT (teacher_id, subject_id) DO UPDATE
+    SET is_main = EXCLUDED.is_main;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_v_ts_insert
+INSTEAD OF INSERT ON v_teacher_subjects
+FOR EACH ROW EXECUTE FUNCTION tf_v_ts_insert();
+
+CREATE OR REPLACE FUNCTION tf_v_ts_update()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_new_teacher_id integer;
+    v_new_subject_id integer;
+BEGIN
+    SELECT teacher_id INTO v_new_teacher_id FROM Teachers WHERE name = NEW.teacher_name;
+    IF NOT FOUND THEN
+        INSERT INTO Teachers (name) VALUES (NEW.teacher_name) RETURNING teacher_id INTO v_new_teacher_id;
+    END IF;
+
+    SELECT subject_id INTO v_new_subject_id FROM Subjects WHERE name = NEW.subject_name;
+    IF NOT FOUND THEN
+        INSERT INTO Subjects (name) VALUES (NEW.subject_name) RETURNING subject_id INTO v_new_subject_id;
+    END IF;
+
+    UPDATE TeacherSubjects ts
+    SET teacher_id = v_new_teacher_id,
+        subject_id = v_new_subject_id,
+        is_main = NEW.is_main
+    FROM Teachers t, Subjects s
+    WHERE ts.teacher_id = t.teacher_id AND t.name = OLD.teacher_name
+      AND ts.subject_id = s.subject_id AND s.name = OLD.subject_name;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_v_ts_update
+INSTEAD OF UPDATE ON v_teacher_subjects
+FOR EACH ROW EXECUTE FUNCTION tf_v_ts_update();
+
+CREATE OR REPLACE FUNCTION tf_v_ts_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM TeacherSubjects ts
+    USING Teachers t, Subjects s
+    WHERE ts.teacher_id = t.teacher_id AND t.name = OLD.teacher_name
+      AND ts.subject_id = s.subject_id AND s.name = OLD.subject_name;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_v_ts_delete
+INSTEAD OF DELETE ON v_teacher_subjects
+FOR EACH ROW EXECUTE FUNCTION tf_v_ts_delete();
+
+
+SELECT * FROM v_teacher_subjects ORDER BY teacher_name, subject_name;
+
+INSERT INTO v_teacher_subjects (teacher_name, subject_name, is_main) VALUES ('Мария', 'Химия', true);
+SELECT * FROM v_teacher_subjects ORDER BY teacher_name, subject_name;
+
+INSERT INTO v_teacher_subjects (teacher_name, subject_name, is_main) VALUES ('Иван', 'Биология', false);
+SELECT * FROM v_teacher_subjects ORDER BY teacher_name, subject_name;
+
+INSERT INTO v_teacher_subjects (teacher_name, subject_name, is_main) VALUES ('Александра', 'Математика', false);
+SELECT * FROM v_teacher_subjects WHERE teacher_name = 'Александра' AND subject_name = 'Математика';
+
+UPDATE v_teacher_subjects SET is_main = true WHERE teacher_name = 'Александра' AND subject_name = 'Физика';
+SELECT * FROM v_teacher_subjects WHERE teacher_name = 'Александра' AND subject_name = 'Физика';
+
+UPDATE v_teacher_subjects SET teacher_name = 'Александра С.' WHERE teacher_name = 'Александра' AND subject_name = 'Математика';
+SELECT * FROM v_teacher_subjects ORDER BY teacher_name, subject_name;
+
+DELETE FROM v_teacher_subjects WHERE teacher_name = 'Иван' AND subject_name = 'Биология';
+SELECT * FROM v_teacher_subjects ORDER BY teacher_name, subject_name;
